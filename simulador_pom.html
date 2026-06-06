@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador Parallax Occlusion Mapping</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1e1e2e;
+            color: #cdd6f4;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+        h1 { color: #89b4fa; margin-bottom: 5px; }
+        p.subtitle { color: #bac2de; margin-bottom: 20px; }
+        .controls {
+            background-color: #313244;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            display: flex;
+            gap: 40px;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+        canvas {
+            background-color: #181825;
+            border: 2px solid #585b70;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+        input[type="range"] { width: 200px; }
+        .label-value { font-weight: bold; color: #a6e3a1; }
+        .legend {
+            margin-top: 15px;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+            font-size: 14px;
+            max-width: 850px;
+        }
+        .legend-item { display: flex; align-items: center; gap: 8px; }
+        .dot { width: 12px; height: 12px; border-radius: 50%; }
+        .dashed-line { width: 20px; height: 0px; border-bottom: 3px dashed #f5c2e7; }
+    </style>
+</head>
+<body>
+
+    <h1>Parallax Occlusion Mapping</h1>
+    <p class="subtitle">(Mètode d'Interpolació Lineal / Secant)</p>
+    
+    <div class="controls">
+        <div class="control-group">
+            <label for="angleSlider">Angle de Visió (Rasant -> Picat)</label>
+            <input type="range" id="angleSlider" min="0.2" max="2.5" step="0.1" value="0.5">
+            <span id="angleVal" class="label-value">Molt Rasant</span>
+        </div>
+        <div class="control-group">
+            <label for="layerSlider">Nombre de Capes</label>
+            <input type="range" id="layerSlider" min="3" max="40" step="1" value="6">
+            <span id="layerVal" class="label-value">6</span>
+        </div>
+    </div>
+
+    <canvas id="pomCanvas" width="850" height="450"></canvas>
+
+    <div class="legend">
+        <div class="legend-item"><div class="dot" style="background-color: #fab387;"></div> Pas Anterior (Aire)</div>
+        <div class="legend-item"><div class="dot" style="background-color: #f38ba8;"></div> Pas Actual (Subterrani)</div>
+        <div class="legend-item"><div class="dot" style="background-color: #a6e3a1;"></div> Arrel Interpolada (POM)</div>
+        <div class="legend-item"><div style="width: 20px; height: 4px; background-color: #89dceb;"></div> Recta Secant (Raig)</div>
+        <div class="legend-item"><div class="dashed-line"></div> Superfície Linealitzada</div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('pomCanvas');
+        const ctx = canvas.getContext('2d');
+        const angleSlider = document.getElementById('angleSlider');
+        const layerSlider = document.getElementById('layerSlider');
+        const angleVal = document.getElementById('angleVal');
+        const layerVal = document.getElementById('layerVal');
+
+        const padding = 70;
+        const width = canvas.width - padding * 2;
+        const height = canvas.height - padding * 2;
+
+        function heightMap(u) {
+            let v = Math.sin(u * Math.PI * 2.5) * 0.3 + Math.cos(u * Math.PI * 5) * 0.15;
+            return 0.5 + v; 
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const numLayers = parseInt(layerSlider.value);
+            const viewAngle = parseFloat(angleSlider.value);
+            layerVal.innerText = numLayers;
+            
+            if(viewAngle < 0.8) angleVal.innerText = "Molt Rasant";
+            else if(viewAngle < 1.5) angleVal.innerText = "Mitjà";
+            else angleVal.innerText = "Gairebé Perpendicular";
+
+            ctx.strokeStyle = '#45475a';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(padding, padding);
+            ctx.lineTo(canvas.width - padding, padding); 
+            ctx.lineTo(canvas.width - padding, canvas.height - padding);
+            ctx.lineTo(padding, canvas.height - padding); 
+            ctx.closePath();
+            ctx.stroke();
+
+            ctx.fillStyle = '#bac2de';
+            ctx.font = '14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText("Coordenada UV (Superfície del polígon)", canvas.width / 2, padding - 40);
+            
+            ctx.save();
+            ctx.translate(padding - 40, canvas.height / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.textAlign = 'center';
+            ctx.fillText("Profunditat", 0, 0);
+            ctx.restore();
+
+            ctx.strokeStyle = '#313244';
+            ctx.setLineDash([5, 5]);
+            for (let i = 1; i <= numLayers; i++) {
+                let y = padding + (i / numLayers) * height;
+                ctx.beginPath();
+                ctx.moveTo(padding, y);
+                ctx.lineTo(canvas.width - padding, y);
+                ctx.stroke();
+            }
+            ctx.setLineDash([]); 
+
+            ctx.strokeStyle = '#cba6f7'; // Lila
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            for (let x = 0; x <= width; x += 2) {
+                let u = x / width;
+                let h = heightMap(u);
+                let canvasX = padding + x;
+                let canvasY = padding + h * height;
+                if (x === 0) ctx.moveTo(canvasX, canvasY);
+                else ctx.lineTo(canvasX, canvasY);
+            }
+            ctx.stroke();
+
+            let startU = 0.1; 
+            let startDepth = 0.0; 
+            let layerDepth = 1.0 / numLayers;
+            let deltaU = layerDepth * viewAngle; 
+
+            let totalEndU = startU + viewAngle; 
+            ctx.strokeStyle = 'rgba(249, 226, 175, 0.2)'; 
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(padding + startU * width, padding);
+            ctx.lineTo(padding + totalEndU * width, padding + height);
+            ctx.stroke();
+
+            let currentU = startU;
+            let currentDepth = startDepth;
+            let prevU = startU;
+            let prevDepth = startDepth;
+            let collided = false;
+
+            ctx.strokeStyle = '#f9e2af'; 
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(padding + currentU * width, padding + currentDepth * height);
+
+            for (let i = 1; i <= numLayers; i++) {
+                currentDepth += layerDepth;
+                currentU += deltaU;
+
+                let px = padding + currentU * width;
+                let py = padding + currentDepth * height;
+                ctx.lineTo(px, py);
+
+                let mapDepth = heightMap(currentU);
+                let mapDepthBefore = heightMap(prevU);
+
+                if (currentDepth >= mapDepth) {
+                    collided = true;
+                    ctx.stroke(); 
+
+                    let distBefore = mapDepthBefore - prevDepth;
+                    let distAfter = currentDepth - mapDepth;
+                    let weight = distAfter / (distBefore + distAfter);
+
+                    let finalU = prevU * weight + currentU * (1.0 - weight);
+                    let finalDepth = prevDepth * weight + currentDepth * (1.0 - weight);
+
+                    let finalX = padding + finalU * width;
+                    let finalY = padding + finalDepth * height;
+                    let prevX = padding + prevU * width;
+                    let prevY = padding + prevDepth * height;
+                    
+                    let prevSurfaceY = padding + mapDepthBefore * height;
+                    let currSurfaceY = padding + mapDepth * height;
+
+                    ctx.strokeStyle = '#f5c2e7';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([6, 4]);
+                    ctx.beginPath();
+                    ctx.moveTo(prevX, prevSurfaceY);
+                    ctx.lineTo(px, currSurfaceY);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    
+                    ctx.fillStyle = '#f5c2e7';
+                    ctx.beginPath();
+                    ctx.arc(prevX, prevSurfaceY, 4, 0, Math.PI * 2);
+                    ctx.arc(px, currSurfaceY, 4, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.strokeStyle = '#89dceb'; 
+                    ctx.lineWidth = 4;
+                    ctx.beginPath();
+                    ctx.moveTo(prevX, prevY);
+                    ctx.lineTo(px, py);
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#fab387'; 
+                    ctx.beginPath();
+                    ctx.arc(prevX, prevY, 5, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.fillStyle = '#f38ba8'; 
+                    ctx.beginPath();
+                    ctx.arc(px, py, 5, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.fillStyle = '#a6e3a1'; 
+                    ctx.beginPath();
+                    ctx.arc(finalX, finalY, 7, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.strokeStyle = '#a6e3a1';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([4, 4]);
+                    ctx.beginPath();
+                    ctx.moveTo(finalX, finalY);
+                    ctx.lineTo(finalX, padding);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    ctx.fillStyle = '#89b4fa'; 
+                    ctx.beginPath();
+                    ctx.arc(finalX, padding, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.textAlign = 'center';
+                    ctx.fillStyle = '#89b4fa';
+                    ctx.fillText("UV Final", finalX, padding - 15);
+
+                    break; 
+                } else {
+                    ctx.fillStyle = '#f9e2af';
+                    ctx.beginPath();
+                    ctx.arc(px, py, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    prevU = currentU;
+                    prevDepth = currentDepth;
+                }
+            }
+            if (!collided) ctx.stroke();
+        }
+
+        angleSlider.addEventListener('input', draw);
+        layerSlider.addEventListener('input', draw);
+        draw(); 
+    </script>
+</body>
+</html>
