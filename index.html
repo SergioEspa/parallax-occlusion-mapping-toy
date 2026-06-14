@@ -60,7 +60,7 @@
     
     <div class="controls">
         <div class="control-group">
-            <label for="angleSlider">Angle de Visió (Rasant -> Picat)</label>
+            <label for="angleSlider">Angle de Visió (Picat -> Rasant)</label>
             <input type="range" id="angleSlider" min="0.2" max="2.5" step="0.1" value="0.5">
             <span id="angleVal" class="label-value">Molt Rasant</span>
         </div>
@@ -105,9 +105,9 @@
             const viewAngle = parseFloat(angleSlider.value);
             layerVal.innerText = numLayers;
             
-            if(viewAngle < 0.8) angleVal.innerText = "Molt Rasant";
+            if(viewAngle < 0.8) angleVal.innerText = "Gairebé Perpendicular";
             else if(viewAngle < 1.5) angleVal.innerText = "Mitjà";
-            else angleVal.innerText = "Gairebé Perpendicular";
+            else angleVal.innerText = "Molt Rasant";
 
             ctx.strokeStyle = '#45475a';
             ctx.lineWidth = 1;
